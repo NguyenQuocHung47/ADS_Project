@@ -1,0 +1,69 @@
+RSS Feed → audio (.mp3)
+→ Whisper / WhisperX → transcript
+→ [ Nhiều mô hình summarization khác nhau ]
+→ So sánh: chất lượng, tốc độ, độ dài tóm tắt, độ chính xác chủ đề
+→ Trình bày kết quả qua bảng / biểu đồ / giao diện
+
+Phân công cho 3 người
+👤 A – Tải audio + Transcribe (1 source chung cho cả nhóm)
+Task:
+
+Dùng RSS để tải audio (có thể chọn 3–5 tập podcast để so sánh).
+
+Transcribe audio bằng Whisper hoặc WhisperX (nếu dùng GPU).
+
+Xuất ra file .txt chứa transcript đầy đủ.
+
+Output: 3–5 files .txt chứa nội dung gốc từ podcast.
+
+👤 B – Triển khai các mô hình tóm tắt
+Task:
+
+Tóm tắt transcript bằng nhiều mô hình:
+
+GPT-3.5 hoặc GPT-4 (qua OpenAI API)
+
+BART hoặc T5 (qua HuggingFace transformers)
+
+Optional: Pegasus, LLaMA2, Mistral nếu đủ RAM
+
+Chuẩn hóa đầu ra (tóm tắt khoảng 5–10 câu, cùng độ dài đầu vào nếu có thể).
+
+Output: .json hoặc .csv chứa {model, transcript, summary}
+
+👤 C – Đánh giá kết quả + giao diện + báo cáo
+Task:
+
+Đánh giá chất lượng tóm tắt bằng:
+
+ROUGE Score (với bản tóm tắt chuẩn)
+
+So sánh độ dài, số câu, số keyword giữ lại
+
+Đánh giá chủ quan: readability, logic
+
+Tạo giao diện hiển thị: chọn mô hình → xem kết quả tóm tắt từng tập
+
+Tổng hợp báo cáo + biểu đồ so sánh
+
+Output: dashboard nhỏ hoặc notebook + biểu đồ matplotlib/plotly
+
+Các mô hình tóm tắt gợi ý
+
+Mô hình	Hệ thống	API/Local	Lưu ý
+GPT-3.5 / 4	OpenAI	API	Dễ dùng, tóm tắt tốt
+BART	Huggingface	Local	facebook/bart-large-cnn
+T5	Huggingface	Local	t5-base, t5-large
+Pegasus	Huggingface	Local	Cần GPU
+Mistral / LLaMA2	Ollama/LM Studio	Local	Nặng, nhưng thú vị nếu đủ máy
+
+Gợi ý tiêu chí đánh giá
+
+Tiêu chí	Mô tả
+ROUGE-L, ROUGE-1, 2	So sánh với bản tóm tắt chuẩn nếu có
+Độ dài tóm tắt	Số từ, số câu
+Tốc độ xử lý	Số giây xử lý 1 đoạn
+Độ chính xác thông tin	Liệt kê đúng người nói, chủ đề không?
+Đánh giá người dùng	Thành viên đọc và cho điểm 1–5
+
+
