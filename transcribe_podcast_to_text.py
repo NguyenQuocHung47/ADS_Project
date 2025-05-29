@@ -10,20 +10,27 @@ MODEL_NAME = "base"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-model = whisper.load_model(MODEL_NAME) # down model
+model = whisper.load_model(MODEL_NAME)
 option = whisper.DecodingOptions(fp16=False)
 
 for filename in os.listdir(AUDIO_DIR):
-    if filename.endswith(".mp3"):
-        audio_path = os.path.join(AUDIO_DIR, filename)
-        print("audio_path:", audio_path)
-        print(f"Đang xử lý: {filename}")
+    if not filename.endswith(".mp3"):
+        continue
 
-        result = model.transcribe(audio_path, fp16=False)
+    audio_path = os.path.join(AUDIO_DIR, filename)
+    text_filename = filename.replace(".mp3", ".txt")
+    text_path = os.path.join(OUTPUT_DIR, text_filename)
 
-        base_name = os.path.splitext(filename)[0]
-        txt_path = os.path.join(OUTPUT_DIR, f"{base_name}.txt")
-        with open(txt_path, "w", encoding="utf-8") as f:
+    # Nếu file đã transcribe rồi thì bỏ qua
+    if os.path.exists(text_path):
+        print(f"Bỏ qua vì đã có: {text_filename}")
+        continue
+
+    print(f"Đang xử lý: {filename}")
+    try:
+        result = model.transcribe(audio_path)
+        with open(text_path, "w", encoding="utf-8") as f:
             f.write(result["text"])
-
-        print(f"Đã lưu: {txt_path}")
+        print(f"Đã lưu transcript: {text_path}")
+    except Exception as e:
+        print(f"Lỗi khi xử lý {filename}: {e}")
