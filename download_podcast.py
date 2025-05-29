@@ -1,31 +1,34 @@
-import feedparser
-import requests
-from pydub import AudioSegment
 import os
-import re
+import requests
+import feedparser
 
 # ==== CONFIG ====
-RSS_FEED_URL = "https://feeds.simplecast.com/54nAGcIl"  
+RSS_FEED_URL = "https://feeds.npr.org/510289/podcast.xml"
 SAVE_DIR = "podcasts"
-NUM_EPISODES = 3 
-
-def clean_filename(name):
-    return re.sub(r'[<>:"/\\|?*]', '', name).replace(" ", "_")
-
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# Đọc RSS
 feed = feedparser.parse(RSS_FEED_URL)
+print(f"📥 Tổng số tập tìm thấy: {len(feed.entries)}")
 
-for i, entry in enumerate(feed.entries[:NUM_EPISODES]):
-    title = title = clean_filename(entry.title)
-    audio_url = entry.enclosures[0].href  
+for entry in feed.entries:
+    title = entry.title.replace(" ", "_").replace("?", "").replace("’", "").replace(":", "")
+    filename = f"{SAVE_DIR}/{title}.mp3"
 
-    print(f"Tải tập {i+1}: {title}")
-    response = requests.get(audio_url)
+    # Bỏ qua nếu file đã tồn tại
+    if os.path.exists(filename):
+        print(f"⏭️ Bỏ qua vì đã tải: {title}")
+        continue
 
-    if response.status_code == 200:
-        mp3_path = os.path.join(SAVE_DIR, f"{title}.mp3")
-        with open(mp3_path, "wb") as f:
+    print(f"Đang tải tập: {title}")
+    try:
+        audio_url = entry.enclosures[0].href
+        response = requests.get(audio_url)
+        response.raise_for_status()  # Check lỗi HTTP
+
+        with open(filename, "wb") as f:
             f.write(response.content)
-        print(f"Đã lưu: {mp3_path}")
-    else:
-        print(f"Lỗi: {audio_url}")
+
+        print(f"Đã lưu: {filename}")
+    except Exception as e:
+        print(f"Lỗi khi tải {title}: {e}")
