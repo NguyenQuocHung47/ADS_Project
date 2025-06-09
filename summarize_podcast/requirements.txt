@@ -1,0 +1,16 @@
+# Core DL/NLP
+torch>=2.0.0
+transformers>=4.39.0
+sentencepiece>=0.1.99
+protobuf>=3.20.0      # Required for Pegasus tokenizers
+
+# Hugging Face Hub (for downloading models)
+huggingface-hub>=0.14.1
+
+# Cohere API
+cohere>=4.27.0
+
+# Optional (fine-tuning, caching, performance)
+datasets>=2.10.0
+accelerate>=0.22.0
+tqdm>=4.65.0
