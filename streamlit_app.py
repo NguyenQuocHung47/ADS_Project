@@ -54,13 +54,13 @@ MAX_INPUT_LENGTH = 1024
 SUMMARY_LENGTH = 150
 
 # Cohere API configuration
-COHERE_API_KEY = ""
+COHERE_API_KEY = "jlYcnl5zKGCbEc6n7ZT132tFlYjcksGyRzAvUeb0"
 # Try to get API key from secrets, but don't fail if not available
 try:
     if "cohere_api_key" in st.secrets:
         COHERE_API_KEY = st.secrets["cohere_api_key"]
 except Exception:
-    # Secrets not available, will show warning when Cohere is selected
+    # Secrets not available, will use the hardcoded trial key
     pass
 
 # Ensure directories exist
@@ -474,15 +474,20 @@ def summarize_with_cohere(text, model_key="cohere"):
         all_summaries = []
         for chunk in chunks:
             # Call Cohere API for summarization
+            # Updated for Cohere API v5+
             response = co.summarize(
                 text=chunk,
                 length='medium',
                 format='paragraph',
                 extractiveness='medium',
                 temperature=0.3,
+                model="command",  # Specify model for v5+ compatibility
             )
             
-            all_summaries.append(response.summary)
+            # In v5+, the response is a dictionary-like object
+            # Access the summary directly
+            summary = response.summary if hasattr(response, 'summary') else response['summary']
+            all_summaries.append(summary)
         
         # Combine all summaries
         result = "\n\n".join(all_summaries)
@@ -495,8 +500,9 @@ def summarize_with_cohere(text, model_key="cohere"):
                 format='paragraph',
                 extractiveness='medium',
                 temperature=0.3,
+                model="command",  # Specify model for v5+ compatibility
             )
-            result = response.summary
+            result = response.summary if hasattr(response, 'summary') else response['summary']
         
         # Calculate accuracy metrics
         quality_metrics = calculate_summary_quality_metrics(text, result)
@@ -536,11 +542,41 @@ def summarize_with_cohere(text, model_key="cohere"):
 
 def transcribe_audio(file_path, whisper_model):
     """Transcribe audio using Whisper"""
+    start_time = time.time()
     try:
         result = whisper_model.transcribe(file_path, fp16=False)
         transcript = result["text"]
+        
+        # Record performance
+        end_time = time.time()
+        st.session_state.api_performance.append({
+            'api': 'whisper',
+            'operation': 'Transcription',
+            'duration': end_time - start_time,
+            'timestamp': datetime.now(),
+            'status': 'Success',
+            'input_length': 0,  # We don't know the audio length in characters
+            'output_length': len(transcript),
+            'similarity_score': 0.0,
+            'compression_ratio': 0.0,
+            'word_overlap': 0.0
+        })
+        
         return transcript
     except Exception as e:
+        # Record error
+        end_time = time.time()
+        st.session_state.api_performance.append({
+            'api': 'whisper',
+            'operation': 'Transcription',
+            'duration': end_time - start_time,
+            'timestamp': datetime.now(),
+            'status': 'Error',
+            'error': str(e),
+            'similarity_score': 0.0,
+            'compression_ratio': 0.0,
+            'word_overlap': 0.0
+        })
         raise e
 
 def process_audio_files(uploaded_files, selected_models):
@@ -866,6 +902,17 @@ def main():
         # Convert to DataFrame for easier manipulation
         df = pd.DataFrame(st.session_state.api_performance)
         
+        # Ensure all required columns exist
+        required_columns = ['api', 'operation', 'status', 'timestamp']
+        for col in required_columns:
+            if col not in df.columns:
+                st.error(f"Missing required column: {col}")
+                return
+        
+        # Add duration column if missing
+        if 'duration' not in df.columns:
+            df['duration'] = 0.0
+        
         # Normalize model names for display
         def normalize_model_name(api_name):
             # Handle Local- prefix models
@@ -892,7 +939,7 @@ def main():
             st.metric("Total Model Calls", total_calls)
         
         with col2:
-            avg_duration = df['duration'].mean()
+            avg_duration = df['duration'].mean() if 'duration' in df.columns else 0.0
             st.metric("Avg Response Time", f"{avg_duration:.2f}s")
         
         with col3:
@@ -1137,13 +1184,25 @@ def main():
         # Timeline chart
         st.subheader("Model Calls Timeline")
         if not df.empty:
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            fig = px.scatter(df, x='timestamp', y='duration', color='normalized_name', 
-                           size='duration', hover_data=['operation', 'status'],
-                           title="Model Calls Over Time")
-            fig.update_layout(xaxis_title="Time", yaxis_title="Duration (seconds)", 
-                            legend_title="Model")
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                # Make a copy to avoid modifying the original dataframe
+                chart_df = df.copy()
+                
+                # Convert timestamp to datetime safely
+                if 'timestamp' in chart_df.columns:
+                    chart_df['timestamp'] = pd.to_datetime(chart_df['timestamp'])
+                    
+                    # Create the chart
+                    fig = px.scatter(chart_df, x='timestamp', y='duration', color='normalized_name', 
+                                   size='duration', hover_data=['operation', 'status'],
+                                   title="Model Calls Over Time")
+                    fig.update_layout(xaxis_title="Time", yaxis_title="Duration (seconds)", 
+                                    legend_title="Model")
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("Timeline chart requires timestamp data.")
+            except Exception as e:
+                st.warning(f"Could not create timeline chart: {str(e)}")
         
         # Detailed performance table
         st.subheader("Detailed Performance Log")
@@ -1158,24 +1217,38 @@ def main():
             status_filter = st.selectbox("Filter by Status", ["All"] + list(df['status'].unique()))
         
         # Apply filters
-        filtered_df = df.copy()
-        if model_filter != "All":
-            filtered_df = filtered_df[filtered_df['normalized_name'] == model_filter]
-        if operation_filter != "All":
-            filtered_df = filtered_df[filtered_df['operation'] == operation_filter]
-        if status_filter != "All":
-            filtered_df = filtered_df[filtered_df['status'] == status_filter]
+        try:
+            filtered_df = df.copy()
+            if model_filter != "All" and 'normalized_name' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['normalized_name'] == model_filter]
+            if operation_filter != "All" and 'operation' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['operation'] == operation_filter]
+            if status_filter != "All" and 'status' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['status'] == status_filter]
+        except Exception as e:
+            st.warning(f"Error applying filters: {str(e)}")
+            filtered_df = df.copy()
         
         # Display table
         if not filtered_df.empty:
             # Select columns based on what's available
             base_columns = ['timestamp', 'normalized_name', 'operation', 'duration', 'status']
+            # Only include columns that exist in the DataFrame
+            available_base_columns = [col for col in base_columns if col in filtered_df.columns]
+            
             accuracy_columns = []
-            
             if 'similarity_score' in filtered_df.columns:
-                accuracy_columns.extend(['similarity_score', 'compression_ratio', 'word_overlap'])
+                potential_accuracy_columns = ['similarity_score', 'compression_ratio', 'word_overlap']
+                # Only include columns that exist in the DataFrame
+                accuracy_columns = [col for col in potential_accuracy_columns if col in filtered_df.columns]
             
-            display_columns = base_columns + accuracy_columns
+            display_columns = available_base_columns + accuracy_columns
+            
+            # Ensure we have at least one column to display
+            if not display_columns:
+                st.warning("No valid columns to display")
+                return
+                
             display_df = filtered_df[display_columns].copy()
             
             # Rename columns for better display
@@ -1191,13 +1264,23 @@ def main():
             })
             
             # Round numerical columns
-            display_df['duration'] = display_df['duration'].round(3)
+            if 'duration' in display_df.columns:
+                display_df['duration'] = display_df['duration'].round(3)
             if accuracy_columns:
                 for col in accuracy_columns:
                     if col in display_df.columns:
                         display_df[col] = display_df[col].round(4)
             
-            display_df['timestamp'] = display_df['timestamp'].dt.strftime('%H:%M:%S')
+            # Format timestamp if it exists and is a datetime type
+            if 'timestamp' in display_df.columns:
+                try:
+                    # Ensure timestamp is datetime type before using dt accessor
+                    if not pd.api.types.is_datetime64_any_dtype(display_df['timestamp']):
+                        display_df['timestamp'] = pd.to_datetime(display_df['timestamp'])
+                    display_df['timestamp'] = display_df['timestamp'].dt.strftime('%H:%M:%S')
+                except Exception as e:
+                    # If formatting fails, leave as is
+                    st.warning(f"Could not format timestamp: {str(e)}")
             st.dataframe(display_df, use_container_width=True)
         else:
             st.info("No data matches the selected filters.")
