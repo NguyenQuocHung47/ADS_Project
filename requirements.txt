@@ -12,6 +12,9 @@ pydub>=0.25.1
 # Natural language processing
 sentencepiece>=0.1.99
 protobuf>=3.20.0
+nltk>=3.8.1
+rouge-score>=0.1.2
+scikit-learn>=1.0.2
 
 # UI and utilities
 tqdm>=4.65.0
@@ -21,6 +24,7 @@ streamlit>=1.28.0
 plotly>=5.15.0
 pandas>=2.0.0
 cohere>=4.0.0
+huggingface-hub>=0.14.1
 
 # Optional: GPU acceleration (uncomment if you have a compatible GPU)
 # torch>=2.0.0+cu118

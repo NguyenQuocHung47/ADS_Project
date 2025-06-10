@@ -12,6 +12,17 @@ from typing import List, Dict, Optional
 import whisper
 from pydub import AudioSegment
 
+# Utility function for model name display
+def get_display_name(model_key):
+    """Convert internal model key to user-friendly display name"""
+    display_names = {
+        "bart-large": "BART",
+        "pegasus-dm": "PEGASUS",
+        "t5-base": "T5",
+        "cohere": "Cohere"
+    }
+    return display_names.get(model_key, model_key.upper())
+
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
@@ -257,7 +268,8 @@ def calculate_model_comparison_metrics(results):
                     
                     # Calculate ROUGE scores (using model1 as reference, model2 as candidate)
                     rouge_scores = calculate_rouge_scores(summary1, summary2)
-                    rouge_scores['model_pair'] = f"{model1}_vs_{model2}"
+                    # Use display names for model pairs
+                    rouge_scores['model_pair'] = f"{get_display_name(model1)} vs {get_display_name(model2)}"
                     rouge_scores['filename'] = filename
                     all_rouge_scores.append(rouge_scores)
                     
@@ -265,7 +277,7 @@ def calculate_model_comparison_metrics(results):
                     bleu_score = calculate_bleu_score(summary1, summary2)
                     all_bleu_scores.append({
                         'bleu_score': bleu_score,
-                        'model_pair': f"{model1}_vs_{model2}",
+                        'model_pair': f"{get_display_name(model1)} vs {get_display_name(model2)}",
                         'filename': filename
                     })
                     
@@ -615,23 +627,26 @@ def process_audio_files(uploaded_files, selected_models):
                 
                 # Create columns for each model
                 model_keys = list(summaries.keys())
+                
+                # Use the global get_display_name function
+                
                 if len(model_keys) == 1:
-                    st.write(f"**{model_keys[0].upper()} Summary:**")
+                    st.write(f"**{get_display_name(model_keys[0])} Summary:**")
                     st.write(summaries[model_keys[0]])
                 elif len(model_keys) == 2:
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.write(f"**{model_keys[0].upper()} Summary:**")
+                        st.write(f"**{get_display_name(model_keys[0])} Summary:**")
                         st.write(summaries[model_keys[0]])
                     with col2:
-                        st.write(f"**{model_keys[1].upper()} Summary:**")
+                        st.write(f"**{get_display_name(model_keys[1])} Summary:**")
                         st.write(summaries[model_keys[1]])
                 else:
                     # For 3 or more models, use tabs
-                    tabs = st.tabs([f"{key.upper()}" for key in model_keys])
+                    tabs = st.tabs([get_display_name(key) for key in model_keys])
                     for i, (key, summary) in enumerate(summaries.items()):
                         with tabs[i]:
-                            st.write(f"**{key.upper()} Summary:**")
+                            st.write(f"**{get_display_name(key)} Summary:**")
                             st.write(summary)
                 
                 with st.expander("View Full Transcript"):
@@ -692,25 +707,70 @@ def main():
         # Display model information
         with st.expander("ℹ️ Model Information"):
             st.write("""
-            **Available Models:**
-            - **BART-Large**: Facebook's BART model fine-tuned on CNN/DailyMail dataset
-            - **Pegasus-DM**: Google's Pegasus model for abstractive summarization
-            - **T5-Base**: Google's T5 model for text-to-text generation
+            **Available Summarization Models:**
+            - **BART**: Facebook's BART model fine-tuned on CNN/DailyMail dataset
+            - **PEGASUS**: Google's Pegasus model for abstractive summarization
+            - **T5**: Google's T5 model for text-to-text generation
             - **Cohere**: Cohere's API for advanced summarization
             
-            You can select multiple models to compare their performance and accuracy.
+            **Available Transcription Models (Whisper):**
+            - **Tiny**: Fastest model with lowest accuracy (good for quick tests)
+            - **Base**: Good balance between speed and accuracy
+            - **Small**: Better accuracy than Base, but slower
+            - **Medium**: High accuracy with longer processing time
+            - **Large**: Highest accuracy, but very slow and memory-intensive
+            
+            You can select multiple summarization models to compare their performance and accuracy.
             """)
         
+        # Get available models and their display names
         available_models = list(SUPPORTED_MODELS.keys())
-        selected_models = st.multiselect(
+        
+        # Create the multiselect with display names
+        selected_display_names = st.multiselect(
             "Choose which models to use for summarization:",
-            available_models,
-            default=available_models,
+            [get_display_name(model) for model in available_models],
+            default=[get_display_name(model) for model in available_models],
             help="You can select multiple models to compare their performance"
         )
         
+        # Convert selected display names back to model keys
+        reverse_mapping = {get_display_name(k): k for k in available_models}
+        selected_models = [reverse_mapping[display_name] for display_name in selected_display_names]
+        
         if not selected_models:
             st.warning("Please select at least one model for summarization.")
+        
+        # Transcription model selection
+        st.subheader("Select Transcription Model")
+        whisper_models = {
+            "tiny": "Tiny (Fast, less accurate)",
+            "base": "Base (Balanced speed/accuracy)",
+            "small": "Small (More accurate, slower)",
+            "medium": "Medium (High accuracy, slow)",
+            "large": "Large (Highest accuracy, very slow)"
+        }
+        
+        selected_whisper_model = st.selectbox(
+            "Choose Whisper model size for transcription:",
+            options=list(whisper_models.keys()),
+            format_func=lambda x: whisper_models[x],
+            index=1,  # Default to "base"
+            help="Larger models are more accurate but slower and use more memory"
+        )
+        
+        # Update the MODEL_NAME global variable and clear cached model if changed
+        global MODEL_NAME
+        if MODEL_NAME != selected_whisper_model:
+            MODEL_NAME = selected_whisper_model
+            # Clear the cached model so it will reload with the new size
+            if 'whisper_model' in st.session_state:
+                del st.session_state.whisper_model
+                if 'whisper' in loaded_models:
+                    del loaded_models['whisper']
+                st.info(f"Whisper model changed to {whisper_models[selected_whisper_model]}. The new model will be loaded when processing files.")
+        else:
+            MODEL_NAME = selected_whisper_model
         
         # File upload section
         st.subheader("Upload Audio Files")
@@ -771,23 +831,25 @@ def main():
                     summaries = result.get('summaries', {})
                     model_keys = list(summaries.keys())
                     
+                    # Use the global get_display_name function
+                    
                     if len(model_keys) == 1:
-                        st.write(f"**{model_keys[0].upper()} Summary:**")
+                        st.write(f"**{get_display_name(model_keys[0])} Summary:**")
                         st.write(summaries[model_keys[0]])
                     elif len(model_keys) == 2:
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.write(f"**{model_keys[0].upper()} Summary:**")
+                            st.write(f"**{get_display_name(model_keys[0])} Summary:**")
                             st.write(summaries[model_keys[0]])
                         with col2:
-                            st.write(f"**{model_keys[1].upper()} Summary:**")
+                            st.write(f"**{get_display_name(model_keys[1])} Summary:**")
                             st.write(summaries[model_keys[1]])
                     else:
                         # For 3 or more models, use tabs
-                        tabs = st.tabs([f"{key.upper()}" for key in model_keys])
+                        tabs = st.tabs([get_display_name(key) for key in model_keys])
                         for j, (key, summary) in enumerate(summaries.items()):
                             with tabs[j]:
-                                st.write(f"**{key.upper()} Summary:**")
+                                st.write(f"**{get_display_name(key)} Summary:**")
                                 st.write(summary)
                     
                     if st.button(f"View Transcript", key=f"view_transcript_{i}"):
@@ -804,10 +866,20 @@ def main():
         # Convert to DataFrame for easier manipulation
         df = pd.DataFrame(st.session_state.api_performance)
         
-        # Normalize model names for display (remove 'Local-' prefix)
+        # Normalize model names for display
         def normalize_model_name(api_name):
+            # Handle Local- prefix models
             if api_name.startswith('Local-'):
-                return api_name.replace('Local-', '')
+                base_name = api_name.replace('Local-', '')
+                # Use the display name function for the base name
+                return f"Local {get_display_name(base_name)}"
+            # Handle non-local models using the display name function
+            elif api_name in ['bart-large', 'pegasus-dm', 't5-base', 'cohere']:
+                return get_display_name(api_name)
+            # Handle Whisper models
+            elif api_name == 'whisper':
+                return f'Whisper {MODEL_NAME.capitalize()}'
+            # Return other model names as is
             return api_name
             
         df['normalized_name'] = df['api'].apply(normalize_model_name)
@@ -845,8 +917,13 @@ def main():
         # Performance charts
         st.subheader("Response Time by Model")
         if not df.empty:
-            fig = px.box(df, x='normalized_name', y='duration', title="Response Time Distribution")
-            fig.update_layout(xaxis_title="Model", yaxis_title="Duration (seconds)")
+            # Create a copy with better column names for display
+            plot_df = df.copy()
+            plot_df = plot_df.rename(columns={
+                'normalized_name': 'Model',
+                'duration': 'Duration (seconds)'
+            })
+            fig = px.box(plot_df, x='Model', y='Duration (seconds)', title="Response Time Distribution")
             st.plotly_chart(fig, use_container_width=True)
         
         # Accuracy metrics charts (only for successful summarization operations)
@@ -862,33 +939,55 @@ def main():
             
             with col1:
                 st.subheader("Similarity Scores by Model")
-                fig = px.box(summary_df, x='normalized_name', y='similarity_score', 
+                # Create a copy with better column names for display
+                plot_df = summary_df.copy()
+                plot_df = plot_df.rename(columns={
+                    'normalized_name': 'Model',
+                    'similarity_score': 'Similarity Score'
+                })
+                fig = px.box(plot_df, x='Model', y='Similarity Score', 
                            title="Text Similarity Distribution")
-                fig.update_layout(xaxis_title="Model", yaxis_title="Similarity Score")
                 st.plotly_chart(fig, use_container_width=True)
             
             with col2:
                 st.subheader("Compression Ratio by Model")
-                fig = px.box(summary_df, x='normalized_name', y='compression_ratio', 
+                # Create a copy with better column names for display
+                plot_df = summary_df.copy()
+                plot_df = plot_df.rename(columns={
+                    'normalized_name': 'Model',
+                    'compression_ratio': 'Compression Ratio'
+                })
+                fig = px.box(plot_df, x='Model', y='Compression Ratio', 
                            title="Compression Ratio Distribution")
-                fig.update_layout(xaxis_title="Model", yaxis_title="Compression Ratio")
                 st.plotly_chart(fig, use_container_width=True)
             
             with col3:
                 st.subheader("Word Overlap by Model")
-                fig = px.box(summary_df, x='normalized_name', y='word_overlap', 
+                # Create a copy with better column names for display
+                plot_df = summary_df.copy()
+                plot_df = plot_df.rename(columns={
+                    'normalized_name': 'Model',
+                    'word_overlap': 'Word Overlap'
+                })
+                fig = px.box(plot_df, x='Model', y='Word Overlap', 
                            title="Word Overlap Distribution")
-                fig.update_layout(xaxis_title="Model", yaxis_title="Word Overlap Ratio")
                 st.plotly_chart(fig, use_container_width=True)
             
             # Accuracy vs Speed scatter plot
             st.subheader("⚡ Accuracy vs Speed Analysis")
-            fig = px.scatter(summary_df, x='duration', y='similarity_score', color='normalized_name',
-                           size='compression_ratio', hover_data=['word_overlap'],
-                           title="Model Performance: Accuracy vs Speed",
-                           labels={'duration': 'Processing Time (seconds)', 
-                                  'similarity_score': 'Similarity Score',
-                                  'normalized_name': 'Model'})
+            # Create a copy with better column names for display
+            plot_df = summary_df.copy()
+            plot_df = plot_df.rename(columns={
+                'duration': 'Processing Time',
+                'similarity_score': 'Similarity Score',
+                'compression_ratio': 'Compression Ratio',
+                'word_overlap': 'Word Overlap',
+                'normalized_name': 'Model'
+            })
+            
+            fig = px.scatter(plot_df, x='Processing Time', y='Similarity Score', color='Model',
+                           size='Compression Ratio', hover_data=['Word Overlap'],
+                           title="Model Performance: Accuracy vs Speed")
             fig.update_layout(xaxis_title="Processing Time (seconds)", 
                             yaxis_title="Similarity Score",
                             legend_title="Model")
@@ -907,8 +1006,8 @@ def main():
                 model_stats = model_stats.reset_index()
                 
                 # Rename columns for better display
-                model_stats.columns = ['Model', 'Avg_Duration', 'Avg_Similarity',
-                                     'Avg_Compression', 'Avg_Word_Overlap']
+                model_stats.columns = ['Model', 'Avg Duration (s)', 'Similarity Score',
+                                     'Compression Ratio', 'Word Overlap']
                 
                 st.dataframe(model_stats, use_container_width=True)
             
@@ -924,22 +1023,22 @@ def main():
                     with col1:
                         if comparison_metrics['rouge_scores']:
                             avg_rouge1 = np.mean([score['rouge1_f'] for score in comparison_metrics['rouge_scores']])
-                            st.metric("Avg ROUGE-1 F1", f"{avg_rouge1:.4f}")
+                            st.metric("ROUGE-1 Score", f"{avg_rouge1:.4f}")
                         else:
-                            st.metric("Avg ROUGE-1 F1", "N/A")
+                            st.metric("ROUGE-1 Score", "N/A")
                     
                     with col2:
                         if comparison_metrics['bleu_scores']:
                             avg_bleu = np.mean([score['bleu_score'] for score in comparison_metrics['bleu_scores']])
-                            st.metric("Avg BLEU Score", f"{avg_bleu:.4f}")
+                            st.metric("BLEU Score", f"{avg_bleu:.4f}")
                         else:
-                            st.metric("Avg BLEU Score", "N/A")
+                            st.metric("BLEU Score", "N/A")
                     
                     with col3:
-                        st.metric("MSE (Similarity)", f"{comparison_metrics['mse_similarity']:.4f}")
+                        st.metric("MSE Score", f"{comparison_metrics['mse_similarity']:.4f}")
                     
                     with col4:
-                        st.metric("BCE (Similarity)", f"{comparison_metrics['bce_similarity']:.4f}")
+                        st.metric("BCE Score", f"{comparison_metrics['bce_similarity']:.4f}")
                     
                     # ROUGE scores detailed view
                     if comparison_metrics['rouge_scores']:
@@ -950,7 +1049,14 @@ def main():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            fig = px.box(rouge_df, y=['rouge1_f', 'rouge2_f', 'rougeL_f'], 
+                            # Create a copy with renamed columns for better display
+                            plot_df = rouge_df.copy()
+                            plot_df = plot_df.rename(columns={
+                                'rouge1_f': 'ROUGE-1',
+                                'rouge2_f': 'ROUGE-2',
+                                'rougeL_f': 'ROUGE-L'
+                            })
+                            fig = px.box(plot_df, y=['ROUGE-1', 'ROUGE-2', 'ROUGE-L'], 
                                        title="ROUGE F1 Scores Distribution")
                             fig.update_layout(yaxis_title="F1 Score")
                             st.plotly_chart(fig, use_container_width=True)
@@ -958,7 +1064,14 @@ def main():
                         with col2:
                             # Average ROUGE scores by model pair
                             avg_rouge_by_pair = rouge_df.groupby('model_pair')[['rouge1_f', 'rouge2_f', 'rougeL_f']].mean().reset_index()
-                            fig = px.bar(avg_rouge_by_pair, x='model_pair', y=['rouge1_f', 'rouge2_f', 'rougeL_f'],
+                            # Rename columns for better display
+                            avg_rouge_by_pair = avg_rouge_by_pair.rename(columns={
+                                'rouge1_f': 'ROUGE-1',
+                                'rouge2_f': 'ROUGE-2',
+                                'rougeL_f': 'ROUGE-L',
+                                'model_pair': 'Model Pair'
+                            })
+                            fig = px.bar(avg_rouge_by_pair, x='Model Pair', y=['ROUGE-1', 'ROUGE-2', 'ROUGE-L'],
                                        title="Average ROUGE Scores by Model Pair")
                             fig.update_layout(xaxis_title="Model Pair", yaxis_title="F1 Score")
                             st.plotly_chart(fig, use_container_width=True)
@@ -966,6 +1079,8 @@ def main():
                         # Detailed ROUGE table
                         st.subheader("Detailed ROUGE Scores")
                         display_rouge_df = rouge_df[['filename', 'model_pair', 'rouge1_f', 'rouge2_f', 'rougeL_f']].copy()
+                        # Rename columns for better display
+                        display_rouge_df.columns = ['Filename', 'Model Pair', 'ROUGE-1', 'ROUGE-2', 'ROUGE-L']
                         display_rouge_df = display_rouge_df.round(4)
                         st.dataframe(display_rouge_df, use_container_width=True)
                     
@@ -977,13 +1092,23 @@ def main():
                         col1, col2 = st.columns(2)
                         
                         with col1:
-                            fig = px.box(bleu_df, y='bleu_score', title="BLEU Scores Distribution")
+                            # Create a copy with renamed columns for better display
+                            plot_df = bleu_df.copy()
+                            plot_df = plot_df.rename(columns={
+                                'bleu_score': 'BLEU Score'
+                            })
+                            fig = px.box(plot_df, y='BLEU Score', title="BLEU Scores Distribution")
                             fig.update_layout(yaxis_title="BLEU Score")
                             st.plotly_chart(fig, use_container_width=True)
                         
                         with col2:
                             avg_bleu_by_pair = bleu_df.groupby('model_pair')['bleu_score'].mean().reset_index()
-                            fig = px.bar(avg_bleu_by_pair, x='model_pair', y='bleu_score',
+                            # Rename columns for better display
+                            avg_bleu_by_pair = avg_bleu_by_pair.rename(columns={
+                                'model_pair': 'Model Pair',
+                                'bleu_score': 'BLEU Score'
+                            })
+                            fig = px.bar(avg_bleu_by_pair, x='Model Pair', y='BLEU Score',
                                        title="Average BLEU Scores by Model Pair")
                             fig.update_layout(xaxis_title="Model Pair", yaxis_title="BLEU Score")
                             st.plotly_chart(fig, use_container_width=True)
@@ -991,6 +1116,8 @@ def main():
                         # Detailed BLEU table
                         st.subheader("Detailed BLEU Scores")
                         display_bleu_df = bleu_df[['filename', 'model_pair', 'bleu_score']].copy()
+                        # Rename columns for better display
+                        display_bleu_df.columns = ['Filename', 'Model Pair', 'BLEU Score']
                         display_bleu_df = display_bleu_df.round(4)
                         st.dataframe(display_bleu_df, use_container_width=True)
                     
@@ -1052,7 +1179,16 @@ def main():
             display_df = filtered_df[display_columns].copy()
             
             # Rename columns for better display
-            display_df = display_df.rename(columns={'normalized_name': 'Model'})
+            display_df = display_df.rename(columns={
+                'normalized_name': 'Model',
+                'duration': 'Duration (s)',
+                'operation': 'Operation',
+                'status': 'Status',
+                'timestamp': 'Time',
+                'similarity_score': 'Similarity Score',
+                'compression_ratio': 'Compression Ratio',
+                'word_overlap': 'Word Overlap'
+            })
             
             # Round numerical columns
             display_df['duration'] = display_df['duration'].round(3)
