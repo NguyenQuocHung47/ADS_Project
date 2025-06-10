@@ -18,6 +18,12 @@ SUPPORTED_MODELS: Dict[str, Dict[str, any]] = {
         "path": "t5-base",
         "max_input": 512,
         "default_summary_len": 120
+    },
+    "cohere": {
+        "path": "cohere-api",
+        "max_input": 25000,
+        "default_summary_len": 150,
+        "is_api": True
     }
 }
 
