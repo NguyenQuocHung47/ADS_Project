@@ -6,7 +6,7 @@ import whisper
 
 # Config
 RSS_FEED_URL = "https://feeds.simplecast.com/54nAGcIl" 
-NUM_EPISODES = 1
+NUM_EPISODES = 5
 AUDIO_DIR = "podcasts"
 TEXT_DIR = "transcripts"
 os.makedirs(AUDIO_DIR, exist_ok=True)

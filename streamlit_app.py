@@ -12,6 +12,12 @@ from typing import List, Dict, Optional
 import whisper
 from pydub import AudioSegment
 
+st.set_page_config(
+        page_title="Podcast Transcription & Summarization",
+        page_icon="🎙️",
+        layout="wide"
+    )
+
 # Utility function for model name display
 def get_display_name(model_key):
     """Convert internal model key to user-friendly display name"""
@@ -709,13 +715,7 @@ def process_audio_files(uploaded_files, selected_models):
     status_text.text("Processing complete!")
     st.success("All files processed successfully!")
 
-def main():
-    st.set_page_config(
-        page_title="Podcast Transcription & Summarization",
-        page_icon="🎙️",
-        layout="wide"
-    )
-    
+def main(): 
     st.title("🎙️ Podcast Transcription & Summarization")
     
     # Create tabs
