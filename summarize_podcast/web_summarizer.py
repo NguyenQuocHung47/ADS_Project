@@ -36,15 +36,13 @@ def summarize_chunk_with_cohere(text_chunk: str, retry: int = 2) -> str:
         try:
             response = co.summarize(
                 text=text_chunk,
-                model="command",  # Updated for Cohere API v5+
+                model="summarize-xlarge",
                 length="medium",
                 format="bullets",
                 temperature=0.3,
                 additional_command="Tóm tắt bằng tiếng Việt"
             )
-            # In v5+, the response is a dictionary-like object
-            # Access the summary directly
-            return response.summary if hasattr(response, 'summary') else response['summary']
+            return response.summary
         except Exception as e:
             err = str(e)
             if "status_code: 429" in err and attempt < retry:
