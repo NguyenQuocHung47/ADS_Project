@@ -11,6 +11,16 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import whisper
 from pydub import AudioSegment
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+
+from utils.metrics import (
+    calculate_rouge_scores,
+    calculate_bleu_score,
+    calculate_mse_score,
+    calculate_bce_score,
+)
 
 st.set_page_config(
         page_title="Podcast Transcription & Summarization",
@@ -719,7 +729,7 @@ def main():
     st.title("🎙️ Podcast Transcription & Summarization")
     
     # Create tabs
-    tab1, tab2 = st.tabs(["📝 Process Audio Files", "📊 API Performance"])
+    tab1, tab2 = st.tabs(["📝 Process Audio Files", "📊 Model Performance"])
     
     with tab1:
         st.header("Welcome to Podcast Transcription & Summarization!")
@@ -1062,30 +1072,103 @@ def main():
             if st.session_state.processing_results:
                 st.subheader("🔄 Model Comparison Metrics")
                 comparison_metrics = calculate_model_comparison_metrics(st.session_state.processing_results)
+                st.info("""
+                    **ROUGE Scores**: Measure overlap between model outputs (higher is better)
+                    - ROUGE-1: Unigram overlap
+                    - ROUGE-2: Bigram overlap  
+                    - ROUGE-L: Longest common subsequence
+                    
+                    **BLEU Score**: Measures n-gram precision between outputs (higher is better)
+                    
+                    **MSE/BCE**: Measure consistency between model similarity scores (lower is better)
+                    """)
                 
                 if comparison_metrics and comparison_metrics['num_comparisons'] > 0:
-                    # Summary metrics
-                    col1, col2, col3, col4 = st.columns(4)
-                    
-                    with col1:
-                        if comparison_metrics['rouge_scores']:
-                            avg_rouge1 = np.mean([score['rouge1_f'] for score in comparison_metrics['rouge_scores']])
-                            st.metric("ROUGE-1 Score", f"{avg_rouge1:.4f}")
-                        else:
-                            st.metric("ROUGE-1 Score", "N/A")
-                    
-                    with col2:
-                        if comparison_metrics['bleu_scores']:
-                            avg_bleu = np.mean([score['bleu_score'] for score in comparison_metrics['bleu_scores']])
-                            st.metric("BLEU Score", f"{avg_bleu:.4f}")
-                        else:
-                            st.metric("BLEU Score", "N/A")
-                    
-                    with col3:
-                        st.metric("MSE Score", f"{comparison_metrics['mse_similarity']:.4f}")
-                    
-                    with col4:
-                        st.metric("BCE Score", f"{comparison_metrics['bce_similarity']:.4f}")
+                    # ---- Individual Model Evaluation ----
+                    individual_scores = {}
+                    for result in st.session_state.processing_results:
+                        transcript = result.get("transcript", "")
+                        summaries = result.get("summaries", {})
+                        for model, summary in summaries.items():
+                            if not summary or summary.startswith("Error"):
+                                continue
+                            if model not in individual_scores:
+                                individual_scores[model] = {
+                                    'rouge1': [], 'rouge2': [], 'rougeL': [],
+                                    'bleu': [], 'mse': [], 'bce': [], 'count': 0
+                                }
+
+                            # Score between summary and original
+                            rouge = calculate_rouge_scores(transcript, summary)
+                            bleu = calculate_bleu_score(transcript, summary)
+                            mse = calculate_mse_score(transcript, summary)
+                            bce = calculate_bce_score(transcript, summary)
+
+                            individual_scores[model]['rouge1'].append(rouge['rouge1_f'])
+                            individual_scores[model]['rouge2'].append(rouge['rouge2_f'])
+                            individual_scores[model]['rougeL'].append(rouge['rougeL_f'])
+                            individual_scores[model]['bleu'].append(bleu)
+                            individual_scores[model]['mse'].append(mse)
+                            individual_scores[model]['bce'].append(bce)
+                            individual_scores[model]['count'] += 1
+
+                    # Create dataframe from results
+                    if individual_scores:
+                        import plotly.graph_objects as go
+
+                        df_individual = pd.DataFrame([
+                            {
+                                "Model": get_display_name(model),
+                                "ROUGE-1": np.mean(scores['rouge1']),
+                                "ROUGE-2": np.mean(scores['rouge2']),
+                                "ROUGE-L": np.mean(scores['rougeL']),
+                                "BLEU": np.mean(scores['bleu']),
+                                "MSE": np.mean(scores['mse']),
+                                "BCE": np.mean(scores['bce']),
+                            }
+                            for model, scores in individual_scores.items()
+                        ])
+
+                        df_individual = df_individual.round(4)
+
+                        # 📊 1. ROUGE Chart
+                        st.markdown("**ROUGE Scores by Model**")
+                        fig_rouge = go.Figure()
+                        for rouge_type in ['ROUGE-1', 'ROUGE-2', 'ROUGE-L']:
+                            fig_rouge.add_trace(go.Bar(
+                                x=df_individual["Model"],
+                                y=df_individual[rouge_type],
+                                name=rouge_type
+                            ))
+                        fig_rouge.update_layout(barmode='group', yaxis_title="ROUGE F1 Score", xaxis_title="Model")
+                        st.plotly_chart(fig_rouge, use_container_width=True)
+
+                        # 📊 2. BLEU Chart
+                        st.markdown("**BLEU Score by Model**")
+                        fig_bleu = go.Figure(data=[
+                            go.Bar(x=df_individual["Model"], y=df_individual["BLEU"], name="BLEU")
+                        ])
+                        fig_bleu.update_layout(yaxis_title="BLEU", xaxis_title="Model")
+                        st.plotly_chart(fig_bleu, use_container_width=True)
+
+                        # 📊 3. MSE Chart
+                        st.markdown("**MSE Score by Model**")
+                        fig_mse = go.Figure(data=[
+                            go.Bar(x=df_individual["Model"], y=df_individual["MSE"], name="MSE")
+                        ])
+                        fig_mse.update_layout(yaxis_title="MSE (lower is better)", xaxis_title="Model")
+                        st.plotly_chart(fig_mse, use_container_width=True)
+
+                        # 📊 4. BCE Chart
+                        st.markdown("**BCE Score by Model**")
+                        fig_bce = go.Figure(data=[
+                            go.Bar(x=df_individual["Model"], y=df_individual["BCE"], name="BCE")
+                        ])
+                        fig_bce.update_layout(yaxis_title="BCE (lower is better)", xaxis_title="Model")
+                        st.plotly_chart(fig_bce, use_container_width=True)
+
+                    else:
+                        st.info("There is insufficient data to evaluate each model individually.")
                     
                     # ROUGE scores detailed view
                     if comparison_metrics['rouge_scores']:
@@ -1167,17 +1250,7 @@ def main():
                         display_bleu_df.columns = ['Filename', 'Model Pair', 'BLEU Score']
                         display_bleu_df = display_bleu_df.round(4)
                         st.dataframe(display_bleu_df, use_container_width=True)
-                    
-                    st.info("""
-                    **ROUGE Scores**: Measure overlap between model outputs (higher is better)
-                    - ROUGE-1: Unigram overlap
-                    - ROUGE-2: Bigram overlap  
-                    - ROUGE-L: Longest common subsequence
-                    
-                    **BLEU Score**: Measures n-gram precision between outputs (higher is better)
-                    
-                    **MSE/BCE**: Measure consistency between model similarity scores (lower is better)
-                    """)
+
                 else:
                     st.info("Need at least 2 different models processing the same content to calculate comparison metrics.")
         
